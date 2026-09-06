@@ -49,6 +49,11 @@ desktop_dir = "~/Desktop"
 # sequesto = "~/work/sequesto"
 # nadir = "~/projects/nadir"
 # voice-evo = "~/projects/voice-evo"
+
+# [firstmate]
+# Optional. Path to a capture script. When set and the script exists,
+# the right-click menu shows a "Send to firstmate" action.
+# inbox_script = "~/Code/Me/firstmate/bin/fm-inbox.sh"
 """
 
 def ensure_config() -> dict:
@@ -64,11 +69,14 @@ def ensure_config() -> dict:
 
 def load_settings(config: dict) -> dict:
     s = config.get("settings", {})
+    fm = config.get("firstmate", {})
+    inbox_script = fm.get("inbox_script")
     return {
         "columns":     s.get("columns", 4),
         "icon_size":   s.get("icon_size", 64),
         "margin":      s.get("margin", 16),
         "desktop_dir": Path(s.get("desktop_dir", "~/Desktop")).expanduser(),
+        "firstmate_inbox_script": Path(inbox_script).expanduser() if inbox_script else None,
     }
 
 
@@ -134,6 +142,17 @@ def move_file_to(src: Path, dest_dir: Path):
         shutil.move(str(src), str(dest_dir / src.name))
     except Exception as e:
         print(f"Move failed: {e}", file=sys.stderr)
+
+
+def delete_permanently(path: Path):
+    import shutil
+    try:
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    except Exception as e:
+        print(f"Delete failed: {e}", file=sys.stderr)
 
 
 # ── File item widget ──────────────────────────────────────────────────────────
@@ -232,6 +251,20 @@ class FileItem(Gtk.Box):
         open_btn.connect("clicked", lambda _: (open_file(self.path), menu.popdown()))
         vbox.append(open_btn)
 
+        nvim_btn = Gtk.Button(label="Open in Neovim")
+        nvim_btn.add_css_class("menu-item")
+        nvim_btn.connect(
+            "clicked",
+            lambda _: (
+                subprocess.Popen(
+                    ["xdg-terminal-exec", "nvim", str(self.path)],
+                    env=os.environ,
+                ),
+                menu.popdown(),
+            ),
+        )
+        vbox.append(nvim_btn)
+
         if self.path.is_dir():
             term_btn = Gtk.Button(label="Open Terminal Here")
             term_btn.add_css_class("menu-item")
@@ -286,6 +319,26 @@ class FileItem(Gtk.Box):
             no_proj.add_css_class("menu-section-label")
             vbox.append(no_proj)
 
+        inbox_script = self.settings.get("firstmate_inbox_script")
+        if inbox_script and inbox_script.exists():
+            fm_btn = Gtk.Button(label="Send to firstmate")
+            fm_btn.add_css_class("menu-item")
+            fm_btn.connect(
+                "clicked",
+                lambda _: (
+                    subprocess.Popen(
+                        [
+                            str(inbox_script),
+                            "note",
+                            f"niri-desktop: please look at {self.path}",
+                        ],
+                        env=os.environ,
+                    ),
+                    menu.popdown(),
+                ),
+            )
+            vbox.append(fm_btn)
+
         sep2 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         sep2.set_margin_top(4)
         sep2.set_margin_bottom(4)
@@ -303,6 +356,31 @@ class FileItem(Gtk.Box):
             ),
         )
         vbox.append(trash_btn)
+
+        # Permanent delete. Two-step: first click reveals a confirm button.
+        delete_btn = Gtk.Button(label="Delete")
+        delete_btn.add_css_class("menu-item")
+        delete_btn.add_css_class("menu-item-danger")
+        vbox.append(delete_btn)
+
+        confirm_btn = Gtk.Button(label="Confirm delete")
+        confirm_btn.add_css_class("menu-item")
+        confirm_btn.add_css_class("menu-item-danger")
+        confirm_btn.set_visible(False)
+        confirm_btn.connect(
+            "clicked",
+            lambda _: (
+                delete_permanently(self.path),
+                menu.popdown(),
+                self.on_moved(),
+            ),
+        )
+        vbox.append(confirm_btn)
+
+        delete_btn.connect(
+            "clicked",
+            lambda _: (delete_btn.set_visible(False), confirm_btn.set_visible(True)),
+        )
 
         menu.set_child(vbox)
         menu.popup()
