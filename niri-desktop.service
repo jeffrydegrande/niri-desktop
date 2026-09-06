@@ -1,0 +1,13 @@
+[Unit]
+Description=niri-desktop overlay (~/Desktop file viewer for niri/Wayland)
+PartOf=niri.service
+After=niri.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/niri-desktop-launch.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=niri.service
